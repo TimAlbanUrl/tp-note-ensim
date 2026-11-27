@@ -1,0 +1,23 @@
+<div class="flex gap-2 flex-wrap">
+@for (kitsune of list(); track kitsune.name) {
+    <a
+        [routerLink]="`/kitsune/${kitsune.name}`"
+        [class.bg-amber-200/80]="kitsune.boost"
+        class="w-96 min-w-64 border border-zinc-200 rounded-lg p-4 flex flex-row content-center"
+    >
+        <div class="flex-grow">
+            <h3>{{ kitsune.name }}</h3>
+            <p class="text-sm text-zinc-600">
+                {{ kitsune.description }}
+            </p>
+        </div>
+        <div
+            [class.bg-emerald-500]="!kitsune.isResting"
+            [class.bg-rose-500]="kitsune.isResting"
+            class="text-xs px-2 py-1 text-white rounded-full h-min"
+        >
+            {{ kitsune.isResting ? 'en repos' : 'actif' }}
+        </div>
+    </a>
+}
+</div>

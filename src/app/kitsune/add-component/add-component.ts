@@ -24,6 +24,6 @@ export class AddComponent {
   });
 
   onSubmit() {
-    console.log("ok");
+    this.manager.addKitsune(...Object.values(this.form.value));
   }
 }

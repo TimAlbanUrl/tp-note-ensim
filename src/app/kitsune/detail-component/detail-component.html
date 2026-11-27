@@ -6,4 +6,10 @@
 <p>En repos: {{ kitsune().isResting }}</p>
 <p>Nombre de victoires: {{ kitsune().wins }}</p>
 <p>Boosté: {{ kitsune().boost }}</p>
-<button (click)="handleBoostAttempt()">Booster</button>
+<button
+    (click)="handleBoostAttempt()"
+    [disabled]="kitsune().boost || kitsune().boostAttemptsLeft == 0"
+    class="cursor-pointer px-2 py-1 rounded-md border border-zinc-200 disabled:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-600"
+>
+    Booster
+</button>

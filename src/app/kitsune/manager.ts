@@ -12,7 +12,8 @@ export class Manager {
             speed: 10,
             isResting: false,
             wins: 0,
-            boost: true
+            boost: true,
+            boostAttemptsLeft: 3
         },
         {
             name: "Kitsune_2",
@@ -22,7 +23,8 @@ export class Manager {
             speed: 10,
             isResting: false,
             wins: 0,
-            boost: false
+            boost: false,
+            boostAttemptsLeft: 3
         },
         {
             name: "Kitsune_3",
@@ -32,7 +34,8 @@ export class Manager {
             speed: 10,
             isResting: false,
             wins: 0,
-            boost: false
+            boost: false,
+            boostAttemptsLeft: 3
         },
         {
             name: "Kitsune_4",
@@ -42,7 +45,8 @@ export class Manager {
             speed: 10,
             isResting: false,
             wins: 0,
-            boost: false
+            boost: false,
+            boostAttemptsLeft: 3
         },
         {
             name: "Kitsune_5",
@@ -52,10 +56,22 @@ export class Manager {
             speed: 10,
             isResting: false,
             wins: 0,
-            boost: false
+            boost: false,
+            boostAttemptsLeft: 3
         }
     ]);
     public getList = this.list.asReadonly();
+
+    public tryToBoost = (name: string) => {
+        const kitsune = this.getKitsune(name);
+        if(!kitsune)
+            return;
+        if(kitsune.boostAttemptsLeft == 0)
+            return;
+        kitsune.boostAttemptsLeft--;
+        if(Math.random() < 0.25)
+            kitsune.boost = true;
+    }
 
     public getKitsune = (name: string | null) => {
         if(!name)
@@ -81,7 +97,8 @@ export class Manager {
             speed: speed,
             isResting: false,
             wins: 0,
-            boost: false
+            boost: false,
+            boostAttemptsLeft: 3
         }
         this.list.update((currentState) => [...currentState, newKitsune]);
     }

@@ -6,5 +6,6 @@ export interface KitsuneInterface {
     speed: number,
     isResting: boolean,
     wins: number,
-    boost: boolean
+    boost: boolean,
+    boostAttemptsLeft: number
 }

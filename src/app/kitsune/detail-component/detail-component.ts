@@ -11,7 +11,13 @@ import { toSignal } from '@angular/core/rxjs-interop';
   templateUrl: "./detail-component.html",
 })
 export class DetailComponent {
+  private readonly manager = inject(Manager);
   private readonly route = inject(ActivatedRoute);
   private readonly data = toSignal(this.route.data, {requireSync: true});
   kitsune = computed(() => this.data()['kitsune'] as KitsuneInterface);
+
+  private readonly handleBoostAttempt = () => {
+    this.manager.tryToBoost(this.kitsune().name);
+    console.log(this.kitsune().boost);
+  }
 }

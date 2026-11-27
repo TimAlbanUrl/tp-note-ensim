@@ -1,0 +1,16 @@
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+    <label for="name">Nom:</label>
+    <input formControlName="name" id="name" type="text">
+    <label for="description">Description:</label>
+    <input formControlName="description" id="description" type="text">
+    <label for="hp">Points de vie:</label>
+    <input formControlName="hp" id="hp" type="number">
+    <label for="strength">Force:</label>
+    <input formControlName="strength" id="strength" type="number">
+    <label for="speed">Vitesse:</label>
+    <input formControlName="speed" id="speed" type="number">
+    <button
+        [disabled]="form.invalid" type="submit"
+        class="cursor-pointer px-2 py-1 rounded-md border border-zinc-200 disabled:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-600"
+    >Créer</button>
+</form>

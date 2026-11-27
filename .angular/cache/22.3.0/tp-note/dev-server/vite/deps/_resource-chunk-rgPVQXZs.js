@@ -1,3 +1,554 @@
+// node_modules/@angular/core/fesm2022/_effect-chunk.mjs
+/**
+* @license Angular v22.3.0
+* (c) 2010-2026 Google LLC. https://angular.dev/
+* License: MIT
+*/
+var activeConsumer = [null];
+var inNotificationPhase = [false];
+var epoch = 1;
+var postProducerCreatedFn = null;
+var SIGNAL = /* @__PURE__ */ Symbol("SIGNAL");
+function setActiveConsumer(consumer) {
+	const prev = activeConsumer[0];
+	activeConsumer[0] = consumer;
+	return prev;
+}
+function getActiveConsumer() {
+	return activeConsumer[0];
+}
+function isInNotificationPhase() {
+	return inNotificationPhase[0];
+}
+var REACTIVE_NODE = {
+	version: 0,
+	lastCleanEpoch: 0,
+	dirty: false,
+	producers: void 0,
+	producersTail: void 0,
+	consumers: void 0,
+	consumersTail: void 0,
+	recomputing: false,
+	consumerAllowSignalWrites: false,
+	consumerIsAlwaysLive: false,
+	kind: "unknown",
+	producerMustRecompute: () => false,
+	producerRecomputeValue: () => {},
+	consumerMarkedDirty: () => {},
+	consumerOnSignalRead: () => {}
+};
+function producerAccessed(node) {
+	if (inNotificationPhase[0]) throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? `Assertion error: signal read during notification phase` : "");
+	const consumer = activeConsumer[0];
+	if (consumer === null) return;
+	consumer.consumerOnSignalRead(node);
+	const prevProducerLink = consumer.producersTail;
+	if (prevProducerLink !== void 0 && prevProducerLink.producer === node) return;
+	let nextProducerLink = void 0;
+	const isRecomputing = consumer.recomputing;
+	if (isRecomputing) {
+		nextProducerLink = prevProducerLink !== void 0 ? prevProducerLink.nextProducer : consumer.producers;
+		if (nextProducerLink !== void 0 && nextProducerLink.producer === node) {
+			consumer.producersTail = nextProducerLink;
+			nextProducerLink.lastReadVersion = node.version;
+			nextProducerLink.knownValidAtEpoch = epoch;
+			return;
+		}
+	}
+	const prevConsumerLink = node.consumersTail;
+	if (prevConsumerLink !== void 0 && prevConsumerLink.consumer === consumer && (!isRecomputing || prevConsumerLink.knownValidAtEpoch === epoch)) return;
+	const isLive = consumerIsLive(consumer);
+	const newLink = {
+		producer: node,
+		consumer,
+		nextProducer: nextProducerLink,
+		prevConsumer: void 0,
+		knownValidAtEpoch: epoch,
+		lastReadVersion: node.version,
+		nextConsumer: void 0
+	};
+	consumer.producersTail = newLink;
+	if (prevProducerLink !== void 0) prevProducerLink.nextProducer = newLink;
+	else consumer.producers = newLink;
+	if (isLive) producerAddLiveConsumer(node, newLink);
+}
+function producerIncrementEpoch() {
+	epoch++;
+}
+function producerUpdateValueVersion(node) {
+	if (consumerIsLive(node) && !node.dirty) return;
+	if (!node.dirty && node.lastCleanEpoch === epoch) return;
+	if (!node.producerMustRecompute(node) && !consumerPollProducersForChange(node)) {
+		producerMarkClean(node);
+		return;
+	}
+	node.producerRecomputeValue(node);
+	producerMarkClean(node);
+}
+function producerNotifyConsumers(node) {
+	if (node.consumers === void 0) return;
+	const prev = inNotificationPhase[0];
+	inNotificationPhase[0] = true;
+	try {
+		for (let link = node.consumers; link !== void 0; link = link.nextConsumer) {
+			const consumer = link.consumer;
+			if (!consumer.dirty) consumerMarkDirty(consumer);
+		}
+	} finally {
+		inNotificationPhase[0] = prev;
+	}
+}
+function producerUpdatesAllowed() {
+	return activeConsumer[0]?.consumerAllowSignalWrites !== false;
+}
+function consumerMarkDirty(node) {
+	node.dirty = true;
+	producerNotifyConsumers(node);
+	node.consumerMarkedDirty?.(node);
+}
+function producerMarkClean(node) {
+	node.dirty = false;
+	node.lastCleanEpoch = epoch;
+}
+function consumerBeforeComputation(node) {
+	if (node) resetConsumerBeforeComputation(node);
+	return setActiveConsumer(node);
+}
+function resetConsumerBeforeComputation(node) {
+	if (node.producersTail?.knownValidAtEpoch === epoch) {
+		let producer = node.producers;
+		while (producer !== void 0) {
+			producer.knownValidAtEpoch = null;
+			producer = producer.nextProducer;
+		}
+	}
+	node.producersTail = void 0;
+	node.recomputing = true;
+}
+function consumerAfterComputation(node, prevConsumer) {
+	setActiveConsumer(prevConsumer);
+	if (node) finalizeConsumerAfterComputation(node);
+}
+function finalizeConsumerAfterComputation(node) {
+	node.recomputing = false;
+	const producersTail = node.producersTail;
+	let toRemove = producersTail !== void 0 ? producersTail.nextProducer : node.producers;
+	if (toRemove !== void 0) {
+		if (consumerIsLive(node)) do
+			toRemove = producerRemoveLiveConsumerLink(toRemove);
+		while (toRemove !== void 0);
+		if (producersTail !== void 0) producersTail.nextProducer = void 0;
+		else node.producers = void 0;
+	}
+}
+function consumerPollProducersForChange(node) {
+	for (let link = node.producers; link !== void 0; link = link.nextProducer) {
+		const producer = link.producer;
+		const seenVersion = link.lastReadVersion;
+		if (seenVersion !== producer.version) return true;
+		producerUpdateValueVersion(producer);
+		if (seenVersion !== producer.version) return true;
+	}
+	return false;
+}
+function consumerDestroy(node) {
+	if (consumerIsLive(node)) {
+		let link = node.producers;
+		while (link !== void 0) link = producerRemoveLiveConsumerLink(link);
+	}
+	node.producers = void 0;
+	node.producersTail = void 0;
+	node.consumers = void 0;
+	node.consumersTail = void 0;
+}
+function producerAddLiveConsumer(node, link) {
+	const consumersTail = node.consumersTail;
+	const wasLive = consumerIsLive(node);
+	if (consumersTail !== void 0) {
+		link.nextConsumer = consumersTail.nextConsumer;
+		consumersTail.nextConsumer = link;
+	} else {
+		link.nextConsumer = void 0;
+		node.consumers = link;
+	}
+	link.prevConsumer = consumersTail;
+	node.consumersTail = link;
+	if (!wasLive) for (let link = node.producers; link !== void 0; link = link.nextProducer) producerAddLiveConsumer(link.producer, link);
+}
+function producerRemoveLiveConsumerLink(link) {
+	const producer = link.producer;
+	const nextProducer = link.nextProducer;
+	const nextConsumer = link.nextConsumer;
+	const prevConsumer = link.prevConsumer;
+	link.nextConsumer = void 0;
+	link.prevConsumer = void 0;
+	if (nextConsumer !== void 0) nextConsumer.prevConsumer = prevConsumer;
+	else producer.consumersTail = prevConsumer;
+	if (prevConsumer !== void 0) prevConsumer.nextConsumer = nextConsumer;
+	else {
+		producer.consumers = nextConsumer;
+		if (!consumerIsLive(producer)) {
+			let producerLink = producer.producers;
+			while (producerLink !== void 0) producerLink = producerRemoveLiveConsumerLink(producerLink);
+		}
+	}
+	return nextProducer;
+}
+function consumerIsLive(node) {
+	return node.consumerIsAlwaysLive || node.consumers !== void 0;
+}
+function runPostProducerCreatedFn(node) {
+	postProducerCreatedFn?.(node);
+}
+function defaultEquals(a, b) {
+	return Object.is(a, b);
+}
+function createComputed(computation, equal) {
+	const node = Object.create(COMPUTED_NODE);
+	node.computation = computation;
+	if (equal !== void 0) node.equal = equal;
+	const computed = () => {
+		producerUpdateValueVersion(node);
+		producerAccessed(node);
+		if (node.value === ERRORED) throw node.error;
+		return node.value;
+	};
+	computed[SIGNAL] = node;
+	if (typeof ngDevMode !== "undefined" && ngDevMode) computed.toString = () => `[Computed${node.debugName ? " (" + node.debugName + ")" : ""}: ${String(node.value)}]`;
+	runPostProducerCreatedFn(node);
+	return computed;
+}
+var UNSET = /* @__PURE__ */ Symbol("UNSET");
+var COMPUTING = /* @__PURE__ */ Symbol("COMPUTING");
+var ERRORED = /* @__PURE__ */ Symbol("ERRORED");
+var COMPUTED_NODE = /* @__PURE__ */ (() => {
+	return {
+		...REACTIVE_NODE,
+		value: UNSET,
+		dirty: true,
+		error: null,
+		equal: defaultEquals,
+		kind: "computed",
+		producerMustRecompute(node) {
+			return node.value === UNSET || node.value === COMPUTING;
+		},
+		producerRecomputeValue(node) {
+			if (node.value === COMPUTING) throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? "Detected cycle in computations." : "");
+			const oldValue = node.value;
+			node.value = COMPUTING;
+			const prevConsumer = consumerBeforeComputation(node);
+			let newValue;
+			let wasEqual = false;
+			try {
+				newValue = node.computation();
+				setActiveConsumer(null);
+				wasEqual = oldValue !== UNSET && oldValue !== ERRORED && newValue !== ERRORED && node.equal(oldValue, newValue);
+				node.error = null;
+			} catch (err) {
+				newValue = ERRORED;
+				node.error = err;
+			} finally {
+				consumerAfterComputation(node, prevConsumer);
+			}
+			if (wasEqual) {
+				node.value = oldValue;
+				return;
+			}
+			node.value = newValue;
+			node.version++;
+		}
+	};
+})();
+function defaultThrowError() {
+	throw new Error();
+}
+var throwInvalidWriteToSignalErrorFn = defaultThrowError;
+function throwInvalidWriteToSignalError(node) {
+	throwInvalidWriteToSignalErrorFn(node);
+}
+function setThrowInvalidWriteToSignalError(fn) {
+	throwInvalidWriteToSignalErrorFn = fn;
+}
+var postSignalSetFn = null;
+function createSignal(initialValue, equal) {
+	const node = Object.create(SIGNAL_NODE);
+	node.value = initialValue;
+	if (equal !== void 0) node.equal = equal;
+	const getter = () => signalGetFn(node);
+	getter[SIGNAL] = node;
+	if (typeof ngDevMode !== "undefined" && ngDevMode) getter.toString = () => `[Signal${node.debugName ? " (" + node.debugName + ")" : ""}: ${String(node.value)}]`;
+	runPostProducerCreatedFn(node);
+	const set = (newValue) => signalSetFn(node, newValue);
+	const update = (updateFn) => signalUpdateFn(node, updateFn);
+	return [
+		getter,
+		set,
+		update
+	];
+}
+function signalGetFn(node) {
+	producerAccessed(node);
+	return node.value;
+}
+function signalSetFn(node, newValue) {
+	if (!producerUpdatesAllowed()) throwInvalidWriteToSignalError(node);
+	if (!node.equal(node.value, newValue)) {
+		node.value = newValue;
+		signalValueChanged(node);
+	}
+}
+function signalUpdateFn(node, updater) {
+	if (!producerUpdatesAllowed()) throwInvalidWriteToSignalError(node);
+	signalSetFn(node, updater(node.value));
+}
+var SIGNAL_NODE = /* @__PURE__ */ (() => {
+	return {
+		...REACTIVE_NODE,
+		equal: defaultEquals,
+		value: void 0,
+		kind: "signal"
+	};
+})();
+function signalValueChanged(node) {
+	node.version++;
+	producerIncrementEpoch();
+	producerNotifyConsumers(node);
+	postSignalSetFn?.(node);
+}
+var BASE_EFFECT_NODE = /* @__PURE__ */ (() => ({
+	...REACTIVE_NODE,
+	consumerIsAlwaysLive: true,
+	consumerAllowSignalWrites: true,
+	dirty: true,
+	kind: "effect"
+}))();
+function runEffect(node) {
+	node.dirty = false;
+	if (node.version > 0 && !consumerPollProducersForChange(node)) return;
+	node.version++;
+	const prevNode = consumerBeforeComputation(node);
+	try {
+		node.cleanup();
+		node.fn();
+	} finally {
+		consumerAfterComputation(node, prevNode);
+	}
+}
+// node_modules/@angular/core/fesm2022/_not_found-chunk.mjs
+/**
+* @license Angular v22.3.0
+* (c) 2010-2026 Google LLC. https://angular.dev/
+* License: MIT
+*/
+var _currentInjector = [void 0];
+function getCurrentInjector() {
+	return _currentInjector[0];
+}
+function setCurrentInjector(injector) {
+	const former = _currentInjector[0];
+	_currentInjector[0] = injector;
+	return former;
+}
+var NOT_FOUND = Symbol("NotFound");
+function isNotFound(e) {
+	return e === NOT_FOUND || e?.name === "ɵNotFound";
+}
+// node_modules/@angular/core/fesm2022/_untracked-chunk.mjs
+/**
+* @license Angular v22.3.0
+* (c) 2010-2026 Google LLC. https://angular.dev/
+* License: MIT
+*/
+function createLinkedSignal(sourceFn, computationFn, equalityFn) {
+	const node = Object.create(LINKED_SIGNAL_NODE);
+	node.source = sourceFn;
+	node.computation = computationFn;
+	if (equalityFn != void 0) node.equal = equalityFn;
+	const linkedSignalGetter = () => {
+		producerUpdateValueVersion(node);
+		producerAccessed(node);
+		if (node.value === ERRORED) throw node.error;
+		return node.value;
+	};
+	const getter = linkedSignalGetter;
+	getter[SIGNAL] = node;
+	if (typeof ngDevMode !== "undefined" && ngDevMode) getter.toString = () => `[LinkedSignal${node.debugName ? " (" + node.debugName + ")" : ""}: ${String(node.value)}]`;
+	runPostProducerCreatedFn(node);
+	return getter;
+}
+function linkedSignalSetFn(node, newValue) {
+	producerUpdateValueVersion(node);
+	signalSetFn(node, newValue);
+	producerMarkClean(node);
+	node.error = null;
+}
+function linkedSignalUpdateFn(node, updater) {
+	producerUpdateValueVersion(node);
+	if (node.value === ERRORED) throw node.error;
+	signalUpdateFn(node, updater);
+	producerMarkClean(node);
+}
+var LINKED_SIGNAL_NODE = /* @__PURE__ */ (() => {
+	return {
+		...REACTIVE_NODE,
+		value: UNSET,
+		dirty: true,
+		error: null,
+		equal: defaultEquals,
+		kind: "linkedSignal",
+		producerMustRecompute(node) {
+			return node.value === UNSET || node.value === COMPUTING;
+		},
+		producerRecomputeValue(node) {
+			if (node.value === COMPUTING) throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? "Detected cycle in computations." : "");
+			const oldValue = node.value;
+			node.value = COMPUTING;
+			const prevConsumer = consumerBeforeComputation(node);
+			let newValue;
+			let wasEqual = false;
+			try {
+				const newSourceValue = node.source();
+				const oldValueValid = oldValue !== UNSET && oldValue !== ERRORED;
+				const prev = oldValueValid ? {
+					source: node.sourceValue,
+					value: oldValue
+				} : void 0;
+				newValue = node.computation(newSourceValue, prev);
+				node.sourceValue = newSourceValue;
+				setActiveConsumer(null);
+				wasEqual = oldValueValid && newValue !== ERRORED && node.equal(oldValue, newValue);
+				node.error = null;
+			} catch (err) {
+				newValue = ERRORED;
+				node.error = err;
+			} finally {
+				consumerAfterComputation(node, prevConsumer);
+			}
+			if (wasEqual) {
+				node.value = oldValue;
+				return;
+			}
+			node.value = newValue;
+			node.version++;
+		}
+	};
+})();
+function untracked$1(nonReactiveReadsFn) {
+	const prevConsumer = setActiveConsumer(null);
+	try {
+		return nonReactiveReadsFn();
+	} finally {
+		setActiveConsumer(prevConsumer);
+	}
+}
+// node_modules/@angular/core/fesm2022/primitives-signals.mjs
+/**
+* @license Angular v22.3.0
+* (c) 2010-2026 Google LLC. https://angular.dev/
+* License: MIT
+*/
+var formatter = {
+	header: (sig, config) => {
+		if (!isSignal$1(sig) || config?.ngSkipFormatting) return null;
+		let value;
+		try {
+			value = sig();
+		} catch (e) {
+			return ["span", `Signal(⚠️ Error)${e.message ? `: ${e.message}` : ""}`];
+		}
+		const kind = "computation" in sig[SIGNAL] ? "Computed" : "Signal";
+		const isPrimitive = value === null || !Array.isArray(value) && typeof value !== "object";
+		return [
+			"span",
+			{},
+			[
+				"span",
+				{},
+				`${kind}(`
+			],
+			(() => {
+				if (isSignal$1(value)) return formatter.header(value, config);
+				else if (isPrimitive && value !== void 0 && typeof value !== "function") return ["object", { object: value }];
+				else return prettifyPreview(value);
+			})(),
+			[
+				"span",
+				{},
+				`)`
+			]
+		];
+	},
+	hasBody: (sig, config) => {
+		if (!isSignal$1(sig)) return false;
+		try {
+			sig();
+		} catch {
+			return false;
+		}
+		return !config?.ngSkipFormatting;
+	},
+	body: (sig, config) => {
+		const color = "var(--sys-color-primary)";
+		return [
+			"div",
+			{ style: `background: #FFFFFF10; padding-left: 4px; padding-top: 2px; padding-bottom: 2px;` },
+			[
+				"div",
+				{ style: `color: ${color}` },
+				"Signal value: "
+			],
+			[
+				"div",
+				{ style: `padding-left: .5rem;` },
+				["object", {
+					object: sig(),
+					config
+				}]
+			],
+			[
+				"div",
+				{ style: `color: ${color}` },
+				"Signal function: "
+			],
+			[
+				"div",
+				{ style: `padding-left: .5rem;` },
+				["object", {
+					object: sig,
+					config: {
+						...config,
+						ngSkipFormatting: true
+					}
+				}]
+			]
+		];
+	}
+};
+function prettifyPreview(value) {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return `Array(${value.length})`;
+	if (value instanceof Element) return `<${value.tagName.toLowerCase()}>`;
+	if (value instanceof URL) return `URL`;
+	switch (typeof value) {
+		case "undefined": return "undefined";
+		case "function": if ("prototype" in value) return "class";
+		else return "() => {…}";
+		case "object": if (value.constructor.name === "Object") return "{…}";
+		else return `${value.constructor.name} {}`;
+		default: return ["object", {
+			object: value,
+			config: { ngSkipFormatting: true }
+		}];
+	}
+}
+function isSignal$1(value) {
+	return value[SIGNAL] !== void 0;
+}
+function installDevToolsSignalFormatter() {
+	globalThis.devtoolsFormatters ??= [];
+	if (!globalThis.devtoolsFormatters.some((f) => f === formatter)) globalThis.devtoolsFormatters.push(formatter);
+}
+if (typeof ngDevMode === "undefined" || ngDevMode) installDevToolsSignalFormatter();
 // node_modules/tslib/tslib.es6.mjs
 /******************************************************************************
 Copyright (c) Microsoft Corporation.
@@ -951,557 +1502,6 @@ var BehaviorSubject = function(_super) {
 	};
 	return BehaviorSubject;
 }(Subject);
-// node_modules/@angular/core/fesm2022/_effect-chunk.mjs
-/**
-* @license Angular v22.3.0
-* (c) 2010-2026 Google LLC. https://angular.dev/
-* License: MIT
-*/
-var activeConsumer = [null];
-var inNotificationPhase = [false];
-var epoch = 1;
-var postProducerCreatedFn = null;
-var SIGNAL = /* @__PURE__ */ Symbol("SIGNAL");
-function setActiveConsumer(consumer) {
-	const prev = activeConsumer[0];
-	activeConsumer[0] = consumer;
-	return prev;
-}
-function getActiveConsumer() {
-	return activeConsumer[0];
-}
-function isInNotificationPhase() {
-	return inNotificationPhase[0];
-}
-var REACTIVE_NODE = {
-	version: 0,
-	lastCleanEpoch: 0,
-	dirty: false,
-	producers: void 0,
-	producersTail: void 0,
-	consumers: void 0,
-	consumersTail: void 0,
-	recomputing: false,
-	consumerAllowSignalWrites: false,
-	consumerIsAlwaysLive: false,
-	kind: "unknown",
-	producerMustRecompute: () => false,
-	producerRecomputeValue: () => {},
-	consumerMarkedDirty: () => {},
-	consumerOnSignalRead: () => {}
-};
-function producerAccessed(node) {
-	if (inNotificationPhase[0]) throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? `Assertion error: signal read during notification phase` : "");
-	const consumer = activeConsumer[0];
-	if (consumer === null) return;
-	consumer.consumerOnSignalRead(node);
-	const prevProducerLink = consumer.producersTail;
-	if (prevProducerLink !== void 0 && prevProducerLink.producer === node) return;
-	let nextProducerLink = void 0;
-	const isRecomputing = consumer.recomputing;
-	if (isRecomputing) {
-		nextProducerLink = prevProducerLink !== void 0 ? prevProducerLink.nextProducer : consumer.producers;
-		if (nextProducerLink !== void 0 && nextProducerLink.producer === node) {
-			consumer.producersTail = nextProducerLink;
-			nextProducerLink.lastReadVersion = node.version;
-			nextProducerLink.knownValidAtEpoch = epoch;
-			return;
-		}
-	}
-	const prevConsumerLink = node.consumersTail;
-	if (prevConsumerLink !== void 0 && prevConsumerLink.consumer === consumer && (!isRecomputing || prevConsumerLink.knownValidAtEpoch === epoch)) return;
-	const isLive = consumerIsLive(consumer);
-	const newLink = {
-		producer: node,
-		consumer,
-		nextProducer: nextProducerLink,
-		prevConsumer: void 0,
-		knownValidAtEpoch: epoch,
-		lastReadVersion: node.version,
-		nextConsumer: void 0
-	};
-	consumer.producersTail = newLink;
-	if (prevProducerLink !== void 0) prevProducerLink.nextProducer = newLink;
-	else consumer.producers = newLink;
-	if (isLive) producerAddLiveConsumer(node, newLink);
-}
-function producerIncrementEpoch() {
-	epoch++;
-}
-function producerUpdateValueVersion(node) {
-	if (consumerIsLive(node) && !node.dirty) return;
-	if (!node.dirty && node.lastCleanEpoch === epoch) return;
-	if (!node.producerMustRecompute(node) && !consumerPollProducersForChange(node)) {
-		producerMarkClean(node);
-		return;
-	}
-	node.producerRecomputeValue(node);
-	producerMarkClean(node);
-}
-function producerNotifyConsumers(node) {
-	if (node.consumers === void 0) return;
-	const prev = inNotificationPhase[0];
-	inNotificationPhase[0] = true;
-	try {
-		for (let link = node.consumers; link !== void 0; link = link.nextConsumer) {
-			const consumer = link.consumer;
-			if (!consumer.dirty) consumerMarkDirty(consumer);
-		}
-	} finally {
-		inNotificationPhase[0] = prev;
-	}
-}
-function producerUpdatesAllowed() {
-	return activeConsumer[0]?.consumerAllowSignalWrites !== false;
-}
-function consumerMarkDirty(node) {
-	node.dirty = true;
-	producerNotifyConsumers(node);
-	node.consumerMarkedDirty?.(node);
-}
-function producerMarkClean(node) {
-	node.dirty = false;
-	node.lastCleanEpoch = epoch;
-}
-function consumerBeforeComputation(node) {
-	if (node) resetConsumerBeforeComputation(node);
-	return setActiveConsumer(node);
-}
-function resetConsumerBeforeComputation(node) {
-	if (node.producersTail?.knownValidAtEpoch === epoch) {
-		let producer = node.producers;
-		while (producer !== void 0) {
-			producer.knownValidAtEpoch = null;
-			producer = producer.nextProducer;
-		}
-	}
-	node.producersTail = void 0;
-	node.recomputing = true;
-}
-function consumerAfterComputation(node, prevConsumer) {
-	setActiveConsumer(prevConsumer);
-	if (node) finalizeConsumerAfterComputation(node);
-}
-function finalizeConsumerAfterComputation(node) {
-	node.recomputing = false;
-	const producersTail = node.producersTail;
-	let toRemove = producersTail !== void 0 ? producersTail.nextProducer : node.producers;
-	if (toRemove !== void 0) {
-		if (consumerIsLive(node)) do
-			toRemove = producerRemoveLiveConsumerLink(toRemove);
-		while (toRemove !== void 0);
-		if (producersTail !== void 0) producersTail.nextProducer = void 0;
-		else node.producers = void 0;
-	}
-}
-function consumerPollProducersForChange(node) {
-	for (let link = node.producers; link !== void 0; link = link.nextProducer) {
-		const producer = link.producer;
-		const seenVersion = link.lastReadVersion;
-		if (seenVersion !== producer.version) return true;
-		producerUpdateValueVersion(producer);
-		if (seenVersion !== producer.version) return true;
-	}
-	return false;
-}
-function consumerDestroy(node) {
-	if (consumerIsLive(node)) {
-		let link = node.producers;
-		while (link !== void 0) link = producerRemoveLiveConsumerLink(link);
-	}
-	node.producers = void 0;
-	node.producersTail = void 0;
-	node.consumers = void 0;
-	node.consumersTail = void 0;
-}
-function producerAddLiveConsumer(node, link) {
-	const consumersTail = node.consumersTail;
-	const wasLive = consumerIsLive(node);
-	if (consumersTail !== void 0) {
-		link.nextConsumer = consumersTail.nextConsumer;
-		consumersTail.nextConsumer = link;
-	} else {
-		link.nextConsumer = void 0;
-		node.consumers = link;
-	}
-	link.prevConsumer = consumersTail;
-	node.consumersTail = link;
-	if (!wasLive) for (let link = node.producers; link !== void 0; link = link.nextProducer) producerAddLiveConsumer(link.producer, link);
-}
-function producerRemoveLiveConsumerLink(link) {
-	const producer = link.producer;
-	const nextProducer = link.nextProducer;
-	const nextConsumer = link.nextConsumer;
-	const prevConsumer = link.prevConsumer;
-	link.nextConsumer = void 0;
-	link.prevConsumer = void 0;
-	if (nextConsumer !== void 0) nextConsumer.prevConsumer = prevConsumer;
-	else producer.consumersTail = prevConsumer;
-	if (prevConsumer !== void 0) prevConsumer.nextConsumer = nextConsumer;
-	else {
-		producer.consumers = nextConsumer;
-		if (!consumerIsLive(producer)) {
-			let producerLink = producer.producers;
-			while (producerLink !== void 0) producerLink = producerRemoveLiveConsumerLink(producerLink);
-		}
-	}
-	return nextProducer;
-}
-function consumerIsLive(node) {
-	return node.consumerIsAlwaysLive || node.consumers !== void 0;
-}
-function runPostProducerCreatedFn(node) {
-	postProducerCreatedFn?.(node);
-}
-function defaultEquals(a, b) {
-	return Object.is(a, b);
-}
-function createComputed(computation, equal) {
-	const node = Object.create(COMPUTED_NODE);
-	node.computation = computation;
-	if (equal !== void 0) node.equal = equal;
-	const computed = () => {
-		producerUpdateValueVersion(node);
-		producerAccessed(node);
-		if (node.value === ERRORED) throw node.error;
-		return node.value;
-	};
-	computed[SIGNAL] = node;
-	if (typeof ngDevMode !== "undefined" && ngDevMode) computed.toString = () => `[Computed${node.debugName ? " (" + node.debugName + ")" : ""}: ${String(node.value)}]`;
-	runPostProducerCreatedFn(node);
-	return computed;
-}
-var UNSET = /* @__PURE__ */ Symbol("UNSET");
-var COMPUTING = /* @__PURE__ */ Symbol("COMPUTING");
-var ERRORED = /* @__PURE__ */ Symbol("ERRORED");
-var COMPUTED_NODE = /* @__PURE__ */ (() => {
-	return {
-		...REACTIVE_NODE,
-		value: UNSET,
-		dirty: true,
-		error: null,
-		equal: defaultEquals,
-		kind: "computed",
-		producerMustRecompute(node) {
-			return node.value === UNSET || node.value === COMPUTING;
-		},
-		producerRecomputeValue(node) {
-			if (node.value === COMPUTING) throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? "Detected cycle in computations." : "");
-			const oldValue = node.value;
-			node.value = COMPUTING;
-			const prevConsumer = consumerBeforeComputation(node);
-			let newValue;
-			let wasEqual = false;
-			try {
-				newValue = node.computation();
-				setActiveConsumer(null);
-				wasEqual = oldValue !== UNSET && oldValue !== ERRORED && newValue !== ERRORED && node.equal(oldValue, newValue);
-				node.error = null;
-			} catch (err) {
-				newValue = ERRORED;
-				node.error = err;
-			} finally {
-				consumerAfterComputation(node, prevConsumer);
-			}
-			if (wasEqual) {
-				node.value = oldValue;
-				return;
-			}
-			node.value = newValue;
-			node.version++;
-		}
-	};
-})();
-function defaultThrowError() {
-	throw new Error();
-}
-var throwInvalidWriteToSignalErrorFn = defaultThrowError;
-function throwInvalidWriteToSignalError(node) {
-	throwInvalidWriteToSignalErrorFn(node);
-}
-function setThrowInvalidWriteToSignalError(fn) {
-	throwInvalidWriteToSignalErrorFn = fn;
-}
-var postSignalSetFn = null;
-function createSignal(initialValue, equal) {
-	const node = Object.create(SIGNAL_NODE);
-	node.value = initialValue;
-	if (equal !== void 0) node.equal = equal;
-	const getter = () => signalGetFn(node);
-	getter[SIGNAL] = node;
-	if (typeof ngDevMode !== "undefined" && ngDevMode) getter.toString = () => `[Signal${node.debugName ? " (" + node.debugName + ")" : ""}: ${String(node.value)}]`;
-	runPostProducerCreatedFn(node);
-	const set = (newValue) => signalSetFn(node, newValue);
-	const update = (updateFn) => signalUpdateFn(node, updateFn);
-	return [
-		getter,
-		set,
-		update
-	];
-}
-function signalGetFn(node) {
-	producerAccessed(node);
-	return node.value;
-}
-function signalSetFn(node, newValue) {
-	if (!producerUpdatesAllowed()) throwInvalidWriteToSignalError(node);
-	if (!node.equal(node.value, newValue)) {
-		node.value = newValue;
-		signalValueChanged(node);
-	}
-}
-function signalUpdateFn(node, updater) {
-	if (!producerUpdatesAllowed()) throwInvalidWriteToSignalError(node);
-	signalSetFn(node, updater(node.value));
-}
-var SIGNAL_NODE = /* @__PURE__ */ (() => {
-	return {
-		...REACTIVE_NODE,
-		equal: defaultEquals,
-		value: void 0,
-		kind: "signal"
-	};
-})();
-function signalValueChanged(node) {
-	node.version++;
-	producerIncrementEpoch();
-	producerNotifyConsumers(node);
-	postSignalSetFn?.(node);
-}
-var BASE_EFFECT_NODE = /* @__PURE__ */ (() => ({
-	...REACTIVE_NODE,
-	consumerIsAlwaysLive: true,
-	consumerAllowSignalWrites: true,
-	dirty: true,
-	kind: "effect"
-}))();
-function runEffect(node) {
-	node.dirty = false;
-	if (node.version > 0 && !consumerPollProducersForChange(node)) return;
-	node.version++;
-	const prevNode = consumerBeforeComputation(node);
-	try {
-		node.cleanup();
-		node.fn();
-	} finally {
-		consumerAfterComputation(node, prevNode);
-	}
-}
-// node_modules/@angular/core/fesm2022/_not_found-chunk.mjs
-/**
-* @license Angular v22.3.0
-* (c) 2010-2026 Google LLC. https://angular.dev/
-* License: MIT
-*/
-var _currentInjector = [void 0];
-function getCurrentInjector() {
-	return _currentInjector[0];
-}
-function setCurrentInjector(injector) {
-	const former = _currentInjector[0];
-	_currentInjector[0] = injector;
-	return former;
-}
-var NOT_FOUND = Symbol("NotFound");
-function isNotFound(e) {
-	return e === NOT_FOUND || e?.name === "ɵNotFound";
-}
-// node_modules/@angular/core/fesm2022/_untracked-chunk.mjs
-/**
-* @license Angular v22.3.0
-* (c) 2010-2026 Google LLC. https://angular.dev/
-* License: MIT
-*/
-function createLinkedSignal(sourceFn, computationFn, equalityFn) {
-	const node = Object.create(LINKED_SIGNAL_NODE);
-	node.source = sourceFn;
-	node.computation = computationFn;
-	if (equalityFn != void 0) node.equal = equalityFn;
-	const linkedSignalGetter = () => {
-		producerUpdateValueVersion(node);
-		producerAccessed(node);
-		if (node.value === ERRORED) throw node.error;
-		return node.value;
-	};
-	const getter = linkedSignalGetter;
-	getter[SIGNAL] = node;
-	if (typeof ngDevMode !== "undefined" && ngDevMode) getter.toString = () => `[LinkedSignal${node.debugName ? " (" + node.debugName + ")" : ""}: ${String(node.value)}]`;
-	runPostProducerCreatedFn(node);
-	return getter;
-}
-function linkedSignalSetFn(node, newValue) {
-	producerUpdateValueVersion(node);
-	signalSetFn(node, newValue);
-	producerMarkClean(node);
-	node.error = null;
-}
-function linkedSignalUpdateFn(node, updater) {
-	producerUpdateValueVersion(node);
-	if (node.value === ERRORED) throw node.error;
-	signalUpdateFn(node, updater);
-	producerMarkClean(node);
-}
-var LINKED_SIGNAL_NODE = /* @__PURE__ */ (() => {
-	return {
-		...REACTIVE_NODE,
-		value: UNSET,
-		dirty: true,
-		error: null,
-		equal: defaultEquals,
-		kind: "linkedSignal",
-		producerMustRecompute(node) {
-			return node.value === UNSET || node.value === COMPUTING;
-		},
-		producerRecomputeValue(node) {
-			if (node.value === COMPUTING) throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? "Detected cycle in computations." : "");
-			const oldValue = node.value;
-			node.value = COMPUTING;
-			const prevConsumer = consumerBeforeComputation(node);
-			let newValue;
-			let wasEqual = false;
-			try {
-				const newSourceValue = node.source();
-				const oldValueValid = oldValue !== UNSET && oldValue !== ERRORED;
-				const prev = oldValueValid ? {
-					source: node.sourceValue,
-					value: oldValue
-				} : void 0;
-				newValue = node.computation(newSourceValue, prev);
-				node.sourceValue = newSourceValue;
-				setActiveConsumer(null);
-				wasEqual = oldValueValid && newValue !== ERRORED && node.equal(oldValue, newValue);
-				node.error = null;
-			} catch (err) {
-				newValue = ERRORED;
-				node.error = err;
-			} finally {
-				consumerAfterComputation(node, prevConsumer);
-			}
-			if (wasEqual) {
-				node.value = oldValue;
-				return;
-			}
-			node.value = newValue;
-			node.version++;
-		}
-	};
-})();
-function untracked$1(nonReactiveReadsFn) {
-	const prevConsumer = setActiveConsumer(null);
-	try {
-		return nonReactiveReadsFn();
-	} finally {
-		setActiveConsumer(prevConsumer);
-	}
-}
-// node_modules/@angular/core/fesm2022/primitives-signals.mjs
-/**
-* @license Angular v22.3.0
-* (c) 2010-2026 Google LLC. https://angular.dev/
-* License: MIT
-*/
-var formatter = {
-	header: (sig, config) => {
-		if (!isSignal$1(sig) || config?.ngSkipFormatting) return null;
-		let value;
-		try {
-			value = sig();
-		} catch (e) {
-			return ["span", `Signal(⚠️ Error)${e.message ? `: ${e.message}` : ""}`];
-		}
-		const kind = "computation" in sig[SIGNAL] ? "Computed" : "Signal";
-		const isPrimitive = value === null || !Array.isArray(value) && typeof value !== "object";
-		return [
-			"span",
-			{},
-			[
-				"span",
-				{},
-				`${kind}(`
-			],
-			(() => {
-				if (isSignal$1(value)) return formatter.header(value, config);
-				else if (isPrimitive && value !== void 0 && typeof value !== "function") return ["object", { object: value }];
-				else return prettifyPreview(value);
-			})(),
-			[
-				"span",
-				{},
-				`)`
-			]
-		];
-	},
-	hasBody: (sig, config) => {
-		if (!isSignal$1(sig)) return false;
-		try {
-			sig();
-		} catch {
-			return false;
-		}
-		return !config?.ngSkipFormatting;
-	},
-	body: (sig, config) => {
-		const color = "var(--sys-color-primary)";
-		return [
-			"div",
-			{ style: `background: #FFFFFF10; padding-left: 4px; padding-top: 2px; padding-bottom: 2px;` },
-			[
-				"div",
-				{ style: `color: ${color}` },
-				"Signal value: "
-			],
-			[
-				"div",
-				{ style: `padding-left: .5rem;` },
-				["object", {
-					object: sig(),
-					config
-				}]
-			],
-			[
-				"div",
-				{ style: `color: ${color}` },
-				"Signal function: "
-			],
-			[
-				"div",
-				{ style: `padding-left: .5rem;` },
-				["object", {
-					object: sig,
-					config: {
-						...config,
-						ngSkipFormatting: true
-					}
-				}]
-			]
-		];
-	}
-};
-function prettifyPreview(value) {
-	if (value === null) return "null";
-	if (Array.isArray(value)) return `Array(${value.length})`;
-	if (value instanceof Element) return `<${value.tagName.toLowerCase()}>`;
-	if (value instanceof URL) return `URL`;
-	switch (typeof value) {
-		case "undefined": return "undefined";
-		case "function": if ("prototype" in value) return "class";
-		else return "() => {…}";
-		case "object": if (value.constructor.name === "Object") return "{…}";
-		else return `${value.constructor.name} {}`;
-		default: return ["object", {
-			object: value,
-			config: { ngSkipFormatting: true }
-		}];
-	}
-}
-function isSignal$1(value) {
-	return value[SIGNAL] !== void 0;
-}
-function installDevToolsSignalFormatter() {
-	globalThis.devtoolsFormatters ??= [];
-	if (!globalThis.devtoolsFormatters.some((f) => f === formatter)) globalThis.devtoolsFormatters.push(formatter);
-}
-if (typeof ngDevMode === "undefined" || ngDevMode) installDevToolsSignalFormatter();
 // node_modules/@angular/core/fesm2022/_pending_tasks-chunk.mjs
 /**
 * @license Angular v22.3.0
@@ -4525,4 +4525,4 @@ function invalidResourceCreationInParams() {
 function rethrowFatalErrors(error) {
 	if (error instanceof RuntimeError && error.code === 992) throw error;
 }
-export { NG_PIPE_DEF as $, __extends as $a, unwrapLView as $i, getElementDepthCount as $n, keyValueArrayGet as $r, assertParentView as $t, ENVIRONMENT_INITIALIZER as A, getActiveConsumer as Aa, setBindingIndex as Ai, enterView as An, isContentQueryHost as Ar, assertFirstUpdatePass as At, INJECTOR_DEF_TYPES as B, Observable as Ba, setIsInCheckNoChangesMode as Bi, getClosureSafeProperty as Bn, isInInjectionContext as Br, assertLContainer as Bt, CheckNoChangesMode as C, SIGNAL as Ca, resetPreOrderHookFlags as Ci, emitInjectEvent as Cn, initNgDevMode as Cr, arraySplice as Ct, DestroyRef as D, consumerDestroy as Da, runInInjectorProfilerContext as Di, encapsulateBoundaryError as Dn, isClassProvider as Dr, assertElement as Dt, DOC_PAGE_BASE_URL as E, consumerBeforeComputation as Ea, runInInjectionContext as Ei, emitProviderConfiguredEvent as En, internalImportProvidersFrom as Er, assertDomNode as Et, ErrorHandler as F, signalSetFn as Fa, setCurrentTNodeAsNotParent as Fi, forwardRef as Fn, isEnvironmentProviders as Fr, assertInInjectionContext as Ft, Injector as G, reportUnhandledError as Ga, store as Gi, getCurrentDirectiveDef as Gn, isProjectionTNode as Gr, assertNotDefined as Gt, INTERNAL_APPLICATION_ERROR_HANDLER as H, identity as Ha, setSelectedIndex as Hi, getComponentLViewByIndex as Hn, isInjectable as Hr, assertLessThan as Ht, EventEmitter as I, BehaviorSubject as Ia, setInI18nBlock as Ii, getAllSpecialProviders as In, isExhaustiveCheckNoChanges as Ir, assertIndexInDeclRange as It, NG_DIR_DEF as J, isFunction as Ja, stringify as Ji, getCurrentQueryIndex as Jn, isSignal as Jr, assertNotReactive as Jt, MATH_ML_NAMESPACE as K, Subscription as Ka, storeCleanupWithContext as Ki, getCurrentDirectiveIndex as Kn, isRefreshingViews as Kr, assertNotEqual as Kt, IMAGE_CONFIG as L, Subject as La, setInjectImplementation as Li, getBindingIndex as Ln, isForwardRef as Lr, assertIndexInExpandoRange as Lt, EffectRefImpl as M, producerUpdateValueVersion as Ma, setCurrentDirectiveIndex as Mi, fillProperties as Mn, isCurrentTNodeParent as Mr, assertGreaterThan as Mt, EffectScheduler as N, setActiveConsumer as Na, setCurrentQueryIndex as Ni, flatten as Nn, isDestroyed as Nr, assertGreaterThanOrEqual as Nt, EMPTY_ARRAY as O, consumerPollProducersForChange as Oa, scheduleCallbackWithMicrotask as Oi, enterDI as On, isComponentDef as Or, assertEqual as Ot, EnvironmentInjector as P, setThrowInvalidWriteToSignalError as Pa, setCurrentTNode as Pi, formatRuntimeError as Pn, isDirectiveHost as Pr, assertHasParent as Pt, NG_MOD_DEF as Q, __awaiter as Qa, truncateMiddle as Qi, getDirectiveDefOrThrow as Qn, isWritableSignal as Qr, assertOneOf as Qt, IMAGE_CONFIG_DEFAULTS as R, createOperatorSubscriber as Ra, setInjectorProfiler as Ri, getBindingRoot as Rn, isInCheckNoChangesMode as Rr, assertIndexInRange as Rt, ChangeDetectionScheduler as S, REACTIVE_NODE as Sa, requiresRefreshOrTraversal as Si, emitAfterRenderEffectPhaseCreatedEvent as Sn, incrementBindingIndex as Sr, arrayInsert2 as St, DOCUMENT as T, consumerAfterComputation as Ta, retrieveTransferredState as Ti, emitInstanceCreatedByInjectorEvent as Tn, injectRootLimpMode as Tr, assertDirectiveDef as Tt, IS_TESTING as U, observable as Ua, signal as Ui, getConstant as Un, isLContainer as Ur, assertNgModuleType as Ut, INJECTOR_SCOPE as V, pipe as Va, setIsRefreshingViews as Vi, getComponentDef as Vn, isInSkipHydrationBlock as Vr, assertLView as Vt, InjectionToken as W, noop$1 as Wa, signalAsReadonlyFn as Wi, getContextLView as Wn, isLView as Wr, assertNodeInjector as Wt, NG_FACTORY_DEF as X, __asyncValues as Xa, throwError as Xi, getCurrentTNodePlaceholderOk as Xn, isStandalone as Xr, assertNumber as Xt, NG_ELEMENT_ID as Y, __asyncGenerator as Ya, stringifyForError as Yi, getCurrentTNode as Yn, isSkipHydrationRootTNode as Yr, assertNotSame as Yt, NG_INJ_DEF as Z, __await as Za, throwProviderNotFoundError as Zi, getDirectiveDef as Zn, isTypeProvider as Zr, assertNumberInRange as Zt, untracked as _, ɵɵnamespaceSVG as _a, providerToFactory as _i, cyclicDependencyErrorWithDetails as _n, getTNode as _r, XSS_SECURITY_URL as _t, ResourceParamsStatus as a, walkProviderTree as aa, leaveView as ai, assertTNodeCreationIndex as an, getNamespace as ar, PLATFORM_INITIALIZER as at, CONTAINER_HEADER_OFFSET as b, setCurrentInjector as ba, removeLViewOnDestroy as bi, deepForEach as bn, importProvidersFrom as br, addToArray as bt, computed as c, ɵunwrapWritableSignal as ca, makeStateKey as ci, attachInjectFlag as cn, getNativeByTNodeOrNull as cr, PendingTasksInternal as ct, invalidResourceCreationInParams as d, ɵɵdisableBindings as da, newArray as di, convertToBitFlags as dn, getNullInjector as dr, SCHEDULE_IN_ROOT_ZONE as dt, unwrapRNode as ea, keyValueArrayIndexOf as ei, assertProjectionSlots as en, __generator as eo, getFactoryDef as er, NG_PROV_DEF as et, isInParamsFunction as f, ɵɵenableBindings as fa, nextBindingIndex as fi, createDictionary as fn, getOrCreateLViewCleanup as fr, SecurityContext as ft, setInParamsFunction as g, ɵɵnamespaceMathML as ga, provideEnvironmentInitializer as gi, cyclicDependencyError as gn, getSelectedTNode as gr, ViewContext as gt, rethrowFatalErrors as h, ɵɵnamespaceHTML as ha, provideBrowserGlobalErrorListeners as hi, createViewEffect as hn, getSelectedIndex as hr, Version as ht, ResourceImpl as i, viewAttachedToContainer as ia, leaveSkipHydrationBlock as ii, assertTNode as in, getLViewParent as ir, PLATFORM_ID as it, ERROR_DETAILS_PAGE_BASE_URL as j, producerAccessed as ja, setBindingRootForHostBindings as ji, errorHandlerEnvironmentInitializer as jn, isCreationMode as jr, assertFunction as jt, EMPTY_OBJ as k, createComputed as ka, scheduleCallbackWithRafRace as ki, enterSkipHydrationBlock as kn, isComponentHost as kr, assertFirstCreatePass as kt, encapsulateResourceError as l, ɵɵdefineInjectable as la, markAncestorsForTraversal as li, checkSecurityContext as ln, getNgModuleDef as lr, R3Injector as lt, resource as m, ɵɵinvalidFactoryDep as ma, promiseWithResolvers as mi, createInjectorWithoutInjectorInstances as mn, getPipeDef as mr, VERSION as mt, OutputEmitterRef as n, validAppIdInitializer as na, lastNodeWasCreated as ni, assertString as nn, __spreadArray as no, getInjectorDef as nr, NoopNgZone as nt, ResourceValueError as o, walkUpViews as oa, load as oi, assertTNodeForLView as on, getNativeByIndex as or, PROVIDED_ZONELESS as ot, linkedSignal as p, ɵɵinject as pa, nextContextImpl as pi, createInjector as pn, getOrCreateTViewCleanup as pr, TransferState as pt, NG_COMP_DEF as q, createErrorClass as qa, storeLViewOnDestroy as qi, getCurrentParentTNode as qn, isRootView as qr, assertNotInReactiveContext as qt, ResourceDependencyError as r, viewAttachedToChangeDetector as ra, leaveDI as ri, assertTIcu as rn, __values as ro, getLView as rr, NullInjector as rt, chain as s, wasLastNodeCreated as sa, makeEnvironmentProviders as si, assertTNodeForTView as sn, getNativeByTNode as sr, PendingTasks as st, CACHE_ACTIVE as t, updateAncestorTraversalFlagsOnAttach as ta, keyValueArraySet as ti, assertSame as tn, __read as to, getInjectableDef as tr, NgZone as tt, getOutputDestroyRef as u, ɵɵdefineInjector as ua, markViewForRefresh as ui, concatStringsWithSpace as un, getNgModuleDefOrThrow as ur, RuntimeError as ut, ANIMATION_MODULE_TYPE as v, ɵɵresetView as va, registerSpecialProvider as vi, debugStringifyTypeForError as vn, getTView as vr, ZONELESS_ENABLED as vt, DEBUG_TASK_TRACKER as w, SIGNAL_NODE as wa, resolveForwardRef as wi, emitInjectorToCreateInstanceEvent as wn, inject as wr, assertDefined as wt, CSP_NONCE as x, ERRORED as xa, renderStringify as xi, effect as xn, increaseElementDepthCount as xr, arrayEquals as xt, APP_ID as y, ɵɵrestoreView as ya, removeFromArray as yi, decreaseElementDepthCount as yn, hasI18n as yr, _global as yt, INJECTOR$1 as z, operate as za, setInjectorProfilerContext as zi, getBindingsEnabled as zn, isInI18nBlock as zr, assertInjectImplementationNotEqual as zt };
+export { NG_PIPE_DEF as $, producerAccessed as $a, unwrapLView as $i, getElementDepthCount as $n, keyValueArrayGet as $r, assertParentView as $t, ENVIRONMENT_INITIALIZER as A, Subscription as Aa, setBindingIndex as Ai, enterView as An, isContentQueryHost as Ar, assertFirstUpdatePass as At, INJECTOR_DEF_TYPES as B, __spreadArray as Ba, setIsInCheckNoChangesMode as Bi, getClosureSafeProperty as Bn, isInInjectionContext as Br, assertLContainer as Bt, CheckNoChangesMode as C, operate as Ca, resetPreOrderHookFlags as Ci, emitInjectEvent as Cn, initNgDevMode as Cr, arraySplice as Ct, DestroyRef as D, observable as Da, runInInjectorProfilerContext as Di, encapsulateBoundaryError as Dn, isClassProvider as Dr, assertElement as Dt, DOC_PAGE_BASE_URL as E, identity as Ea, runInInjectionContext as Ei, emitProviderConfiguredEvent as En, internalImportProvidersFrom as Er, assertDomNode as Et, ErrorHandler as F, __await as Fa, setCurrentTNodeAsNotParent as Fi, forwardRef as Fn, isEnvironmentProviders as Fr, assertInInjectionContext as Ft, Injector as G, SIGNAL as Ga, store as Gi, getCurrentDirectiveDef as Gn, isProjectionTNode as Gr, assertNotDefined as Gt, INTERNAL_APPLICATION_ERROR_HANDLER as H, setCurrentInjector as Ha, setSelectedIndex as Hi, getComponentLViewByIndex as Hn, isInjectable as Hr, assertLessThan as Ht, EventEmitter as I, __awaiter as Ia, setInI18nBlock as Ii, getAllSpecialProviders as In, isExhaustiveCheckNoChanges as Ir, assertIndexInDeclRange as It, NG_DIR_DEF as J, consumerBeforeComputation as Ja, stringify as Ji, getCurrentQueryIndex as Jn, isSignal as Jr, assertNotReactive as Jt, MATH_ML_NAMESPACE as K, SIGNAL_NODE as Ka, storeCleanupWithContext as Ki, getCurrentDirectiveIndex as Kn, isRefreshingViews as Kr, assertNotEqual as Kt, IMAGE_CONFIG as L, __extends as La, setInjectImplementation as Li, getBindingIndex as Ln, isForwardRef as Lr, assertIndexInExpandoRange as Lt, EffectRefImpl as M, isFunction as Ma, setCurrentDirectiveIndex as Mi, fillProperties as Mn, isCurrentTNodeParent as Mr, assertGreaterThan as Mt, EffectScheduler as N, __asyncGenerator as Na, setCurrentQueryIndex as Ni, flatten as Nn, isDestroyed as Nr, assertGreaterThanOrEqual as Nt, EMPTY_ARRAY as O, noop$1 as Oa, scheduleCallbackWithMicrotask as Oi, enterDI as On, isComponentDef as Or, assertEqual as Ot, EnvironmentInjector as P, __asyncValues as Pa, setCurrentTNode as Pi, formatRuntimeError as Pn, isDirectiveHost as Pr, assertHasParent as Pt, NG_MOD_DEF as Q, getActiveConsumer as Qa, truncateMiddle as Qi, getDirectiveDefOrThrow as Qn, isWritableSignal as Qr, assertOneOf as Qt, IMAGE_CONFIG_DEFAULTS as R, __generator as Ra, setInjectorProfiler as Ri, getBindingRoot as Rn, isInCheckNoChangesMode as Rr, assertIndexInRange as Rt, ChangeDetectionScheduler as S, createOperatorSubscriber as Sa, requiresRefreshOrTraversal as Si, emitAfterRenderEffectPhaseCreatedEvent as Sn, incrementBindingIndex as Sr, arrayInsert2 as St, DOCUMENT as T, pipe as Ta, retrieveTransferredState as Ti, emitInstanceCreatedByInjectorEvent as Tn, injectRootLimpMode as Tr, assertDirectiveDef as Tt, IS_TESTING as U, ERRORED as Ua, signal as Ui, getConstant as Un, isLContainer as Ur, assertNgModuleType as Ut, INJECTOR_SCOPE as V, __values as Va, setIsRefreshingViews as Vi, getComponentDef as Vn, isInSkipHydrationBlock as Vr, assertLView as Vt, InjectionToken as W, REACTIVE_NODE as Wa, signalAsReadonlyFn as Wi, getContextLView as Wn, isLView as Wr, assertNodeInjector as Wt, NG_FACTORY_DEF as X, consumerPollProducersForChange as Xa, throwError as Xi, getCurrentTNodePlaceholderOk as Xn, isStandalone as Xr, assertNumber as Xt, NG_ELEMENT_ID as Y, consumerDestroy as Ya, stringifyForError as Yi, getCurrentTNode as Yn, isSkipHydrationRootTNode as Yr, assertNotSame as Yt, NG_INJ_DEF as Z, createComputed as Za, throwProviderNotFoundError as Zi, getDirectiveDef as Zn, isTypeProvider as Zr, assertNumberInRange as Zt, untracked as _, ɵɵnamespaceSVG as _a, providerToFactory as _i, cyclicDependencyErrorWithDetails as _n, getTNode as _r, XSS_SECURITY_URL as _t, ResourceParamsStatus as a, walkProviderTree as aa, leaveView as ai, assertTNodeCreationIndex as an, getNamespace as ar, PLATFORM_INITIALIZER as at, CONTAINER_HEADER_OFFSET as b, BehaviorSubject as ba, removeLViewOnDestroy as bi, deepForEach as bn, importProvidersFrom as br, addToArray as bt, computed as c, ɵunwrapWritableSignal as ca, makeStateKey as ci, attachInjectFlag as cn, getNativeByTNodeOrNull as cr, PendingTasksInternal as ct, invalidResourceCreationInParams as d, ɵɵdisableBindings as da, newArray as di, convertToBitFlags as dn, getNullInjector as dr, SCHEDULE_IN_ROOT_ZONE as dt, unwrapRNode as ea, keyValueArrayIndexOf as ei, assertProjectionSlots as en, producerUpdateValueVersion as eo, getFactoryDef as er, NG_PROV_DEF as et, isInParamsFunction as f, ɵɵenableBindings as fa, nextBindingIndex as fi, createDictionary as fn, getOrCreateLViewCleanup as fr, SecurityContext as ft, setInParamsFunction as g, ɵɵnamespaceMathML as ga, provideEnvironmentInitializer as gi, cyclicDependencyError as gn, getSelectedTNode as gr, ViewContext as gt, rethrowFatalErrors as h, ɵɵnamespaceHTML as ha, provideBrowserGlobalErrorListeners as hi, createViewEffect as hn, getSelectedIndex as hr, Version as ht, ResourceImpl as i, viewAttachedToContainer as ia, leaveSkipHydrationBlock as ii, assertTNode as in, getLViewParent as ir, PLATFORM_ID as it, ERROR_DETAILS_PAGE_BASE_URL as j, createErrorClass as ja, setBindingRootForHostBindings as ji, errorHandlerEnvironmentInitializer as jn, isCreationMode as jr, assertFunction as jt, EMPTY_OBJ as k, reportUnhandledError as ka, scheduleCallbackWithRafRace as ki, enterSkipHydrationBlock as kn, isComponentHost as kr, assertFirstCreatePass as kt, encapsulateResourceError as l, ɵɵdefineInjectable as la, markAncestorsForTraversal as li, checkSecurityContext as ln, getNgModuleDef as lr, R3Injector as lt, resource as m, ɵɵinvalidFactoryDep as ma, promiseWithResolvers as mi, createInjectorWithoutInjectorInstances as mn, getPipeDef as mr, VERSION as mt, OutputEmitterRef as n, validAppIdInitializer as na, lastNodeWasCreated as ni, assertString as nn, setThrowInvalidWriteToSignalError as no, getInjectorDef as nr, NoopNgZone as nt, ResourceValueError as o, walkUpViews as oa, load as oi, assertTNodeForLView as on, getNativeByIndex as or, PROVIDED_ZONELESS as ot, linkedSignal as p, ɵɵinject as pa, nextContextImpl as pi, createInjector as pn, getOrCreateTViewCleanup as pr, TransferState as pt, NG_COMP_DEF as q, consumerAfterComputation as qa, storeLViewOnDestroy as qi, getCurrentParentTNode as qn, isRootView as qr, assertNotInReactiveContext as qt, ResourceDependencyError as r, viewAttachedToChangeDetector as ra, leaveDI as ri, assertTIcu as rn, signalSetFn as ro, getLView as rr, NullInjector as rt, chain as s, wasLastNodeCreated as sa, makeEnvironmentProviders as si, assertTNodeForTView as sn, getNativeByTNode as sr, PendingTasks as st, CACHE_ACTIVE as t, updateAncestorTraversalFlagsOnAttach as ta, keyValueArraySet as ti, assertSame as tn, setActiveConsumer as to, getInjectableDef as tr, NgZone as tt, getOutputDestroyRef as u, ɵɵdefineInjector as ua, markViewForRefresh as ui, concatStringsWithSpace as un, getNgModuleDefOrThrow as ur, RuntimeError as ut, ANIMATION_MODULE_TYPE as v, ɵɵresetView as va, registerSpecialProvider as vi, debugStringifyTypeForError as vn, getTView as vr, ZONELESS_ENABLED as vt, DEBUG_TASK_TRACKER as w, Observable as wa, resolveForwardRef as wi, emitInjectorToCreateInstanceEvent as wn, inject as wr, assertDefined as wt, CSP_NONCE as x, Subject as xa, renderStringify as xi, effect as xn, increaseElementDepthCount as xr, arrayEquals as xt, APP_ID as y, ɵɵrestoreView as ya, removeFromArray as yi, decreaseElementDepthCount as yn, hasI18n as yr, _global as yt, INJECTOR$1 as z, __read as za, setInjectorProfilerContext as zi, getBindingsEnabled as zn, isInI18nBlock as zr, assertInjectImplementationNotEqual as zt };

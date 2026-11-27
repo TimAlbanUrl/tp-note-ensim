@@ -73,6 +73,10 @@ export class Manager {
             kitsune.boost = true;
     }
 
+    public isNameAvailable = (name: string) => {
+        return this.getKitsune(name) == null;
+    }
+
     public getKitsune = (name: string | null) => {
         if(!name)
             return null;

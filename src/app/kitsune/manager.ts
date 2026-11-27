@@ -57,6 +57,15 @@ export class Manager {
     ]);
     public getList = this.list.asReadonly();
 
+    public getKitsune = (name: string | null) => {
+        if(!name)
+            return null;
+        const result = this.list().filter((kitsune: KitsuneInterface) => kitsune.name === name);
+        if(result.length === 0)
+            return null;
+        return result[0];
+    }
+
     public addKitsune = (
         name: string,
         description: string,

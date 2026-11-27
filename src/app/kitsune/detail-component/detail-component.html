@@ -1,1 +1,9 @@
-<p>detail-component works!</p>
+<h2>{{ kitsune().name }}</h2>
+<p>Description: {{ kitsune().description }}</p>
+<p>Points de vie: {{ kitsune().hp }}</p>
+<p>Force: {{ kitsune().strength }}</p>
+<p>Vitesse: {{ kitsune().speed }}</p>
+<p>En repos: {{ kitsune().isResting }}</p>
+<p>Nombre de victoires: {{ kitsune().wins }}</p>
+<p>Boosté: {{ kitsune().boost }}</p>
+<button (click)="handleBoostAttempt()">Booster</button>

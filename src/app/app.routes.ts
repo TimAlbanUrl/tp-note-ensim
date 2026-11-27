@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { ListComponent } from './kitsune/list-component/list-component';
 import { DetailComponent } from './kitsune/detail-component/detail-component';
+import { KitsuneResolver } from './kitsune/resolver';
 
 export const routes: Routes = [
     {
@@ -10,7 +11,10 @@ export const routes: Routes = [
     },
     {
         path: 'kitsune/:name',
-        component: DetailComponent
+        component: DetailComponent,
+        resolve: {
+            kitsune: KitsuneResolver
+        }
     },
     {
         path: 'kitsune',

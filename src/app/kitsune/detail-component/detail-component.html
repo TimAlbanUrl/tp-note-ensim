@@ -1,3 +1,4 @@
+@if (kitsune()) {
 <h2>{{ kitsune().name }}</h2>
 <p>Description: {{ kitsune().description }}</p>
 <p>Points de vie: {{ kitsune().hp }}</p>
@@ -13,3 +14,13 @@
 >
     Booster
 </button>
+} @else {
+<h2>Kitsune non trouvé</h2>
+<p>Oups... Le Kitsune que tu recherches ,'exister pas...</p>
+<a
+    routerLink="/kitsune"
+    class="cursor-pointer px-2 py-1 rounded-md border border-zinc-200 disabled:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-600"
+>
+    Liste Kitsune
+</a>
+}

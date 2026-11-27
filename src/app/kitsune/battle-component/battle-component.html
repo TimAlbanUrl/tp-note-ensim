@@ -1,0 +1,20 @@
+<div class="flex gap-2 flex-wrap">
+@for (kitsune of list(); track kitsune.name) {
+    <div
+        (click)="handleCardClick(kitsune.name)"
+        [class.bg-amber-200/80]="kitsune.boost"
+        [class.border-sky-600]="isSelected(kitsune.name)"
+        class="w-96 min-w-64 border border-zinc-200 rounded-lg p-4 flex flex-row content-center cursor-pointer"
+    >
+        <div class="flex-grow">
+            <h3>{{ kitsune.name }}</h3>
+            <p class="text-sm text-zinc-600">
+                {{ kitsune.description }}
+            </p>
+        </div>
+    </div>
+}
+</div>
+@if (isReady()) {
+<button class="cursor-pointer px-2 py-1 rounded-md border border-zinc-200 disabled:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-600">Combat !</button>
+}

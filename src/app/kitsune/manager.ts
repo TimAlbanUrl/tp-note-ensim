@@ -54,7 +54,7 @@ export class Manager {
             hp: 100,
             strength: 10,
             speed: 10,
-            isResting: false,
+            isResting: true,
             wins: 0,
             boost: false,
             boostAttemptsLeft: 3
@@ -87,12 +87,14 @@ export class Manager {
     }
 
     public addKitsune = (
-        name: string,
-        description: string,
-        hp: number,
-        strength: number,
-        speed: number
+        name?: string | null,
+        description?: string | null,
+        hp?: number | null,
+        strength?: number | null,
+        speed?: number | null
     ) => {
+        if(!(name && description && hp && strength && speed))
+            return;
         const newKitsune: KitsuneInterface = {
             name: name,
             description: description,

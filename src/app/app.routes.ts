@@ -3,6 +3,7 @@ import { ListComponent } from './kitsune/list-component/list-component';
 import { DetailComponent } from './kitsune/detail-component/detail-component';
 import { KitsuneResolver } from './kitsune/resolver';
 import { AddComponent } from './kitsune/add-component/add-component';
+import { BattleComponent } from './kitsune/battle-component/battle-component';
 
 export const routes: Routes = [
     {
@@ -24,5 +25,9 @@ export const routes: Routes = [
     {
         path: 'add',
         component: AddComponent
+    },
+    {
+        path: 'battle',
+        component: BattleComponent
     }
 ];

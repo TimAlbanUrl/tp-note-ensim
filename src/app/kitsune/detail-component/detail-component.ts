@@ -3,9 +3,10 @@ import { ActivatedRoute } from '@angular/router';
 import { Manager } from '../manager';
 import { KitsuneInterface } from '../kitsune-interface';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 
 @Component({
-  imports: [],
+  imports: [RouterLink],
   selector: "app-detail-component",
   styleUrl: "./detail-component.css",
   templateUrl: "./detail-component.html",
@@ -18,6 +19,5 @@ export class DetailComponent {
 
   private readonly handleBoostAttempt = () => {
     this.manager.tryToBoost(this.kitsune().name);
-    console.log(this.kitsune().boost);
   }
 }

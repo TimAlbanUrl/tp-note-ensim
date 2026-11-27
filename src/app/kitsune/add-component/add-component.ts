@@ -24,6 +24,12 @@ export class AddComponent {
   });
 
   onSubmit() {
-    this.manager.addKitsune(...Object.values(this.form.value));
+    this.manager.addKitsune(
+      this.form.value['name'],
+      this.form.value['description'],
+      parseInt(this.form.value['hp'] + ''),
+      parseInt(this.form.value['strength'] + ''),
+      parseInt(this.form.value['speed'] + '')
+    );
   }
 }
